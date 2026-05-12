@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from planning.pddl import ActionSchema, State, Objects
+from planning.pddl import ActionSchema, State, Objects, get_all_groundings, is_applicable
 
 
 def nullHeuristic(
@@ -45,7 +45,25 @@ def ignorePreconditionsHeuristic(
          Remember: with no preconditions, every grounding is "applicable".
     """
     ### Your code here ###
+    unsatisfied = goal - state
+    if not unsatisfied:
+        return 0
 
+    all_actions = get_all_groundings(domain, objects)
+
+    count = 0
+    while unsatisfied:
+        best_coverage = frozenset()
+        for action in all_actions:
+            coverage = action.add_list & unsatisfied
+            if len(coverage) > len(best_coverage):
+                best_coverage = coverage
+        if not best_coverage:
+            return float("inf")
+        unsatisfied -= best_coverage
+        count += 1
+
+    return count
     ### End of your code ###
 
 
@@ -79,5 +97,30 @@ def ignoreDeleteListsHeuristic(
          each step (preconditions still apply in the relaxed model).
     """
     ### Your code here ###
+    relaxed_state = state
+    all_actions = get_all_groundings(domain, objects)
+    count = 0
 
+    while not goal.issubset(relaxed_state):
+        unsatisfied = goal - relaxed_state
+        best_action = None
+        best_score = (-1, -1)  # (goal_gain, new_fluents)
+
+        for action in all_actions:
+            if not is_applicable(relaxed_state, action):
+                continue
+            goal_gain = len(action.add_list & unsatisfied)
+            new_fluents = len(action.add_list - relaxed_state)
+            score = (goal_gain, new_fluents)
+            if score > best_score:
+                best_score = score
+                best_action = action
+
+        if best_action is None or best_score == (0, 0):
+            return float("inf")
+
+        relaxed_state = relaxed_state | best_action.add_list
+        count += 1
+
+    return count
     ### End of your code ###
