@@ -182,9 +182,11 @@ def regress(goal_set: State, action: Action) -> State | None:
     Tip: Use frozenset operations: intersection (&), difference (-), union (|).
          Check relevance first, then check for contradictions, then compute.
     """
-    ### Your code here ###
-
-    ### End of your code ###
+    if not (action.add_list & goal_set):
+        return None
+    if action.del_list & goal_set:
+        return None
+    return (goal_set - action.add_list) | action.precond_pos
 
 
 def backwardSearch(problem: Problem) -> list[Action]:
@@ -205,9 +207,61 @@ def backwardSearch(problem: Problem) -> list[Action]:
          Skip subgoals that contain static predicates (MedicalPost, Adjacent,
          Pickable) that are false in the initial state — these are dead ends.
     """
-    ### Your code here ###
+    initial = problem.initial_state
+    goal = problem.goal
 
-    ### End of your code ###
+    if goal.issubset(initial):
+        return []
+
+    static_predicates = {"MedicalPost", "Adjacent", "Pickable"}
+
+    def is_dead_end(goal_set: State) -> bool:
+        robot_at_cells = []
+        holding_objs = []
+        for f in goal_set:
+            if f[0] in static_predicates and f not in initial:
+                return True
+            if f[0] == "At" and len(f) == 3 and f[1] == "robot":
+                robot_at_cells.append(f[2])
+            if f[0] == "Holding":
+                holding_objs.append(f[2])
+        if len(robot_at_cells) > 1:
+            return True
+        if len(holding_objs) > 1:
+            return True
+        if holding_objs and ("HandsFree", "robot") in goal_set:
+            return True
+        if robot_at_cells and ("Free", robot_at_cells[0]) in goal_set:
+            return True
+        return False
+
+    all_actions = get_all_groundings(problem.domain, problem.objects)
+
+    frontier = Queue()
+    frontier.push((goal, []))
+    visited: set[State] = {goal}
+
+    while not frontier.isEmpty():
+        current_goal, actions = frontier.pop()
+        problem._expanded += 1
+
+        for action in all_actions:
+            regressed = regress(current_goal, action)
+            if regressed is None:
+                continue
+            if is_dead_end(regressed):
+                continue
+
+            new_actions = [action] + actions
+
+            if regressed.issubset(initial):
+                return new_actions
+
+            if regressed not in visited:
+                visited.add(regressed)
+                frontier.push((regressed, new_actions))
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +288,6 @@ def aStarPlanner(
          Use PriorityQueue with priority = g + h(next_state).
          Track the best g-cost seen for each state to avoid stale expansions.
     """
-    ### Your code here ###
     start = problem.getStartState()
     if problem.isGoalState(start):
         return []
@@ -266,7 +319,6 @@ def aStarPlanner(
                 frontier.push((next_state, actions + [action]), new_g + h)
 
     return []
-    ### End of your code ###
 tinyBaseSearch = tinyBaseSearch
 forwardBFS = forwardBFS
 backwardSearch = backwardSearch
