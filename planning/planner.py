@@ -219,7 +219,7 @@ def backwardSearch(problem: Problem) -> list[Action]:
         robot_at_cells = []
         holding_objs = []
         for f in goal_set:
-            if f[0] in static_predicates and f not in initial:
+            if f[0] in static_predicates:
                 return True
             if f[0] == "At" and len(f) == 3 and f[1] == "robot":
                 robot_at_cells.append(f[2])
@@ -235,31 +235,66 @@ def backwardSearch(problem: Problem) -> list[Action]:
             return True
         return False
 
+    from collections import defaultdict
     all_actions = get_all_groundings(problem.domain, problem.objects)
+
+    add_index: dict = defaultdict(list)
+    for _a in all_actions:
+        for _f in _a.add_list:
+            add_index[_f].append(_a)
+
+    def visited_key(goal_set: State) -> State:
+        """
+        Deduplication key: only the UNSATISFIED fluents (not in initial state),
+        minus static predicates already handled by dead-end pruning.
+        Two goal sets that share the same unsatisfied core represent equivalent
+        search states for BFS-optimal planning: they differ only in background
+        fluents that are always true in the initial state and need not be achieved.
+        The full goal is still used for DEL ∩ g checks during regression.
+        """
+        return frozenset(f for f in goal_set if f not in initial)
+
+    start_key = visited_key(goal)
+    if not start_key:
+        return []
 
     frontier = Queue()
     frontier.push((goal, []))
-    visited: set[State] = {goal}
+    visited: set[State] = {start_key}
 
     while not frontier.isEmpty():
         current_goal, actions = frontier.pop()
         problem._expanded += 1
 
-        for action in all_actions:
-            regressed = regress(current_goal, action)
-            if regressed is None:
-                continue
-            if is_dead_end(regressed):
-                continue
+        unsatisfied = current_goal - initial
+        seen_actions: set = set()
+        for fluent in unsatisfied:
+            for action in add_index.get(fluent, []):
+                if id(action) in seen_actions:
+                    continue
+                seen_actions.add(id(action))
 
-            new_actions = [action] + actions
+                regressed = regress(current_goal, action)
+                if regressed is None:
+                    continue
 
-            if regressed.issubset(initial):
-                return new_actions
+                simplified = frozenset(
+                    f for f in regressed
+                    if f not in initial or f[0] not in static_predicates
+                )
 
-            if regressed not in visited:
-                visited.add(regressed)
-                frontier.push((regressed, new_actions))
+                if is_dead_end(simplified):
+                    continue
+
+                new_actions = [action] + actions
+
+                if simplified.issubset(initial):
+                    return new_actions
+
+                key = visited_key(simplified)
+                if key not in visited:
+                    visited.add(key)
+                    frontier.push((simplified, new_actions))
 
     return []
 
